@@ -1,12 +1,13 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+
+import { useEffect, useState } from 'react';
 import {
   Link2,
-  Zap,
-  CalendarDays,
-  Hash,
+  Sparkles,
+  Scissors,
+  Copy,
+  History,
   Trash2,
-  CheckCircle2,
   AlertTriangle,
 } from 'lucide-react';
 import { UrlForm } from '@/components/ui/UrlForm';
@@ -17,7 +18,6 @@ import styles from './page.module.css';
 
 const STORAGE_KEY = 'shortenedUrls';
 
-/* ─── Confirm Modal ──────────────────────────────────────────────────────── */
 function ConfirmModal({
   count,
   onConfirm,
@@ -37,15 +37,16 @@ function ConfirmModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className={styles.modalIconRing}>
-          <AlertTriangle size={24} strokeWidth={2} />
+          <AlertTriangle size={22} strokeWidth={2} />
         </div>
 
         <h2 id="modal-title" className={styles.modalTitle}>
-          Eliminar historial
+          Borrar historial
         </h2>
+
         <p className={styles.modalText}>
-          Se borrarán <strong>{count} {count === 1 ? 'enlace' : 'enlaces'}</strong> guardados
-          en este navegador. Esta acción no se puede deshacer.
+          Vas a eliminar <strong>{count} {count === 1 ? 'enlace' : 'enlaces'}</strong> guardados.
+          Esta acción no se puede deshacer.
         </p>
 
         <div className={styles.modalActions}>
@@ -56,11 +57,12 @@ function ConfirmModal({
           >
             Cancelar
           </button>
+
           <button
             className={styles.modalBtnDelete}
             onClick={onConfirm}
           >
-            <Trash2 size={14} strokeWidth={2.5} />
+            <Trash2 size={14} strokeWidth={2.4} />
             Eliminar
           </button>
         </div>
@@ -69,7 +71,6 @@ function ConfirmModal({
   );
 }
 
-/* ─── Page ───────────────────────────────────────────────────────────────── */
 export default function Home() {
   const [urls, setUrls] = useState<ShortenedUrl[]>([]);
   const [toastMessage, setToastMessage] = useState('');
@@ -89,20 +90,6 @@ export default function Home() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(urls));
   }, [urls]);
 
-  const metrics = useMemo(() => {
-    const latest = urls[0];
-    return {
-      total: urls.length,
-      latest: latest
-        ? new Date(latest.createdAt).toLocaleDateString('es-CO', {
-            day: '2-digit',
-            month: 'short',
-          })
-        : '—',
-      provider: latest ? new URL(latest.shortUrl).hostname : 'is.gd',
-    };
-  }, [urls]);
-
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setToastVisible(true);
@@ -116,12 +103,13 @@ export default function Home() {
       slug: shortUrl.split('/').pop()!,
       createdAt: Date.now(),
     };
+
     setUrls((prev) => [newUrl, ...prev]);
   };
 
   const handleCopy = (url: string) => {
     navigator.clipboard.writeText(url).catch(() => {});
-    showToast('Enlace copiado al portapapeles');
+    showToast('Enlace copiado');
   };
 
   const handleClearHistory = () => {
@@ -136,6 +124,8 @@ export default function Home() {
     showToast('Historial eliminado');
   };
 
+  const totalLinks = urls.length;
+
   return (
     <>
       <div className={styles.pageBg} aria-hidden="true" />
@@ -143,94 +133,130 @@ export default function Home() {
 
       <main className={styles.main}>
         <div className={styles.container}>
-
-          {/* ── Header ── */}
           <header className={styles.header}>
             <div className={styles.brand}>
               <div className={styles.logoWrap} aria-hidden="true">
-                <Link2 size={18} strokeWidth={2.5} />
+                <Link2 size={18} strokeWidth={2.4} />
               </div>
+
               <div>
                 <p className={styles.brandName}>CorLink</p>
-                <p className={styles.brandTag}>Acortador de URLs</p>
+                <p className={styles.brandTag}>Acorta y comparte enlaces</p>
               </div>
             </div>
 
-            <div className={styles.statusPill} role="status">
-              <span className={styles.statusDot} aria-hidden="true" />
-              Servicio activo
-            </div>
+            {totalLinks > 0 && (
+              <div className={styles.countPill}>
+                {totalLinks} {totalLinks === 1 ? 'enlace' : 'enlaces'}
+              </div>
+            )}
           </header>
 
-          {/* ── Hero ── */}
           <section className={styles.hero} aria-label="Inicio">
-            <div className={styles.heroIconRing} aria-hidden="true">
-              <Link2 size={28} strokeWidth={1.8} />
-            </div>
+            <p className={styles.heroBadge}>
+              <Sparkles size={14} strokeWidth={2.2} />
+              Rápido y fácil
+            </p>
+
             <h1 className={styles.heroTitle}>
-              URLs largas,{' '}
-              <span>enlaces cortos</span>
+              Tu enlace,
+              <span className={styles.heroTitleAccent}> más corto</span>
+              <br />
+              y listo para compartir
             </h1>
+
             <p className={styles.heroSub}>
-              Pega cualquier enlace y obtén una versión corta lista para compartir en segundos.
+              Pega una URL larga, genera una versión corta en segundos y compártela sin complicaciones.
             </p>
+
+            <div className={styles.heroSteps}>
+              <article className={styles.stepCard}>
+                <div className={styles.stepIcon}>
+                  <Link2 size={16} strokeWidth={2.2} />
+                </div>
+                <div>
+                  <h3 className={styles.stepTitle}>Pega tu enlace</h3>
+                  <p className={styles.stepText}>
+                    Copia cualquier URL y ponla en el campo.
+                  </p>
+                </div>
+              </article>
+
+              <article className={styles.stepCard}>
+                <div className={styles.stepIcon}>
+                  <Scissors size={16} strokeWidth={2.2} />
+                </div>
+                <div>
+                  <h3 className={styles.stepTitle}>Acórtalo</h3>
+                  <p className={styles.stepText}>
+                    Obtén una versión más limpia y fácil de usar.
+                  </p>
+                </div>
+              </article>
+
+              <article className={styles.stepCard}>
+                <div className={styles.stepIcon}>
+                  <Copy size={16} strokeWidth={2.2} />
+                </div>
+                <div>
+                  <h3 className={styles.stepTitle}>Copia y comparte</h3>
+                  <p className={styles.stepText}>
+                    Ten tu enlace listo para enviarlo donde quieras.
+                  </p>
+                </div>
+              </article>
+            </div>
           </section>
 
-          {/* ── Stats ── */}
-          <div className={styles.statsRow} role="group" aria-label="Estadísticas">
-            <div className={styles.statCard}>
-              <div className={styles.statIconBox} aria-hidden="true">
-                <Hash size={16} strokeWidth={2.2} />
-              </div>
-              <div className={styles.statBody}>
-                <strong className={styles.statValue}>{metrics.total}</strong>
-                <span className={styles.statLabel}>Guardados</span>
-              </div>
-            </div>
-
-            <div className={styles.statCard}>
-              <div className={styles.statIconBox} aria-hidden="true">
-                <CalendarDays size={16} strokeWidth={2} />
-              </div>
-              <div className={styles.statBody}>
-                <strong className={styles.statValue}>{metrics.latest}</strong>
-                <span className={styles.statLabel}>Último</span>
+          <section className={styles.formCard} aria-label="Formulario para acortar enlace">
+            <div className={styles.sectionHead}>
+              <div>
+                <p className={styles.sectionEyebrow}>Nuevo enlace</p>
+                <h2 className={styles.sectionTitle}>Acortar enlace</h2>
+                <p className={styles.sectionSub}>
+                  Pega tu URL y genera un enlace corto al instante.
+                </p>
               </div>
             </div>
 
-            <div className={styles.statCard}>
-              <div className={styles.statIconBox} aria-hidden="true">
-                <Zap size={16} strokeWidth={2} />
-              </div>
-              <div className={styles.statBody}>
-                <strong className={styles.statValue}>{metrics.provider}</strong>
-                <span className={styles.statLabel}>Proveedor</span>
-              </div>
-            </div>
-          </div>
-
-          {/* ── Form ── */}
-          <div className={styles.formCard}>
-            <p className={styles.formCardLabel} aria-hidden="true">
-              <Link2 size={13} strokeWidth={2.5} />
-              Acortar enlace
-            </p>
             <UrlForm onShorten={handleShorten} />
-          </div>
-
-          {/* ── History ── */}
-          <section className={styles.historySection} aria-label="Historial de enlaces">
-            <UrlList urls={urls} onCopy={handleCopy} onClearHistory={handleClearHistory} />
           </section>
 
-        </div>
+          <section
+            id="historial"
+            className={styles.historySection}
+            aria-label="Historial de enlaces"
+          >
+            <div className={styles.sectionHead}>
+              <div>
+                <p className={styles.sectionEyebrow}>Tus enlaces</p>
+                <h2 className={styles.sectionTitle}>Historial reciente</h2>
+                <p className={styles.sectionSub}>
+                  Aquí encontrarás tus enlaces generados para copiarlos cuando los necesites.
+                </p>
+              </div>
 
-        <footer className={styles.footer}>
-          Los enlaces se guardan en tu navegador · Acortado vía is.gd
-        </footer>
+              <div className={styles.sectionBadge}>
+                <History size={14} strokeWidth={2.2} />
+                {totalLinks === 0
+                  ? 'Aún no hay enlaces'
+                  : `${totalLinks} ${totalLinks === 1 ? 'enlace' : 'enlaces'}`}
+              </div>
+            </div>
+
+            <UrlList
+              urls={urls}
+              onCopy={handleCopy}
+              onClearHistory={handleClearHistory}
+            />
+          </section>
+
+          <footer className={styles.footer}>
+            CorLink · Acorta, copia y comparte
+          </footer>
+        </div>
       </main>
 
-      {/* ── Confirm Modal ── */}
       {showConfirmModal && (
         <ConfirmModal
           count={urls.length}
@@ -239,7 +265,6 @@ export default function Home() {
         />
       )}
 
-      {/* ── Toast ── */}
       <Toast
         message={toastMessage}
         visible={toastVisible}
