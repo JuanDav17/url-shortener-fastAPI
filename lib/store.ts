@@ -198,3 +198,7 @@ export const getAllUrls = async (): Promise<Array<[string, string]>> => {
     return [[key.replace('short-url:', ''), value] as [string, string]];
   });
 };
+export const slugExists = async (slug: string): Promise<boolean> => {
+  const result = await getRedisClient().exists(getStorageKey(slug));
+  return result === 1;
+};
