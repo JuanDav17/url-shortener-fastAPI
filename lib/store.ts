@@ -5,6 +5,7 @@ import {
   type UpstashRequest,
   type UpstashResponse,
 } from '@upstash/redis';
+import { DEFAULT_LINK_TTL_SECONDS } from '@/lib/server.constants';
 
 let redisClient: Redis | undefined;
 
@@ -13,7 +14,11 @@ function getBlockPageTitle(body: string): string | null {
   return titleMatch?.[1]?.replace(/\s+/g, ' ').trim() ?? null;
 }
 
-function createHtmlResponseError(serviceName: string, hostname: string, body: string): Error {
+function createHtmlResponseError(
+  serviceName: string,
+  hostname: string,
+  body: string
+): Error {
   const title = getBlockPageTitle(body);
 
   if (title && /web filter violation/i.test(title)) {
@@ -27,7 +32,11 @@ function createHtmlResponseError(serviceName: string, hostname: string, body: st
   );
 }
 
-function createRequester(url: string, token: string, allowInsecureTls: boolean): Requester {
+function createRequester(
+  url: string,
+  token: string,
+  allowInsecureTls: boolean
+): Requester {
   const agent = new https.Agent({
     keepAlive: true,
     rejectUnauthorized: !allowInsecureTls,
@@ -91,7 +100,13 @@ function createRequester(url: string, token: string, allowInsecureTls: boolean):
                 /^<html/i.test(normalizedBody);
 
               if (looksLikeHtml) {
-                reject(createHtmlResponseError('Upstash Redis', parsedUrl.hostname, normalizedBody));
+                reject(
+                  createHtmlResponseError(
+                    'Upstash Redis',
+                    parsedUrl.hostname,
+                    normalizedBody
+                  )
+                );
                 return;
               }
 
@@ -113,7 +128,8 @@ function createRequester(url: string, token: string, allowInsecureTls: boolean):
               if (response.statusCode < 200 || response.statusCode >= 300) {
                 reject(
                   new Error(
-                    parsedBody.error || `Upstash Redis respondio con status ${response.statusCode}`
+                    parsedBody.error ||
+                      `Upstash Redis respondio con status ${response.statusCode}`
                   )
                 );
                 return;
@@ -169,8 +185,52 @@ function getStorageKey(slug: string): string {
   return `short-url:${slug}`;
 }
 
-export const saveUrl = async (slug: string, originalUrl: string): Promise<void> => {
-  await getRedisClient().set(getStorageKey(slug), originalUrl);
+function getRateLimitKey(scope: string): string {
+  return `rate-limit:${scope}`;
+}
+
+function getLinkTtlSeconds(): number {
+  const raw = Number(process.env.LINK_TTL_SECONDS ?? DEFAULT_LINK_TTL_SECONDS);
+
+  if (!Number.isFinite(raw) || raw < 0) {
+    return DEFAULT_LINK_TTL_SECONDS;
+  }
+
+  return Math.floor(raw);
+}
+
+interface SaveUrlOptions {
+  onlyIfNotExists?: boolean;
+  ttlSeconds?: number;
+}
+
+export const saveUrl = async (
+  slug: string,
+  originalUrl: string,
+  options: SaveUrlOptions = {}
+): Promise<boolean> => {
+  const redis = getRedisClient();
+  const ttlSeconds = options.ttlSeconds ?? getLinkTtlSeconds();
+
+  const key = getStorageKey(slug);
+
+  let result: unknown;
+
+  if (options.onlyIfNotExists && ttlSeconds > 0) {
+    result = await redis.set(key, originalUrl, { nx: true, ex: ttlSeconds });
+  } else if (options.onlyIfNotExists) {
+    result = await redis.set(key, originalUrl, { nx: true });
+  } else if (ttlSeconds > 0) {
+    result = await redis.set(key, originalUrl, { ex: ttlSeconds });
+  } else {
+    result = await redis.set(key, originalUrl);
+  }
+
+  if (options.onlyIfNotExists) {
+    return result === 'OK';
+  }
+
+  return true;
 };
 
 export const getUrl = async (slug: string): Promise<string | undefined> => {
@@ -198,7 +258,23 @@ export const getAllUrls = async (): Promise<Array<[string, string]>> => {
     return [[key.replace('short-url:', ''), value] as [string, string]];
   });
 };
+
 export const slugExists = async (slug: string): Promise<boolean> => {
   const result = await getRedisClient().exists(getStorageKey(slug));
   return result === 1;
+};
+
+export const increaseRateLimitCounter = async (
+  scope: string,
+  windowSeconds: number
+): Promise<number> => {
+  const redis = getRedisClient();
+  const key = getRateLimitKey(scope);
+  const value = await redis.incr(key);
+
+  if (value === 1) {
+    await redis.expire(key, windowSeconds);
+  }
+
+  return value;
 };

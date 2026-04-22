@@ -8,10 +8,11 @@ La aplicacion permite:
 
 - ingresar una URL valida desde la interfaz principal
 - enviar esa URL al endpoint interno `/api/shorten`
-- solicitar el acortado al proveedor `is.gd`
+- generar un slug aleatorio seguro en el servidor
 - guardar el slug y la URL original en Upstash Redis
 - mostrar el resultado al usuario
 - conservar un historial local en el navegador para la sesion del usuario
+- aplicar rate limit por IP en la API de acortado
 
 ## Como funciona
 
@@ -19,12 +20,11 @@ El flujo principal es este:
 
 1. El usuario escribe una URL en la pagina principal.
 2. El formulario envia la URL a `app/api/shorten/route.ts`.
-3. La API valida el dato recibido.
-4. La API hace la solicitud a `is.gd` para generar el enlace corto.
-5. Cuando `is.gd` responde correctamente, se extrae el slug del enlace corto.
-6. Ese slug se guarda junto con la URL original en Upstash Redis.
-7. La API responde al frontend con la URL corta resultante.
-8. El frontend agrega ese registro al historial local guardado en `localStorage`.
+3. La API valida y normaliza el dato recibido.
+4. La API aplica rate limit por IP.
+5. La API genera un slug aleatorio y lo guarda de forma atomica en Upstash.
+6. La API responde al frontend con la URL corta resultante.
+7. El frontend agrega ese registro al historial local guardado en `localStorage`.
 
 ## Persistencia y almacenamiento
 
@@ -40,7 +40,7 @@ La persistencia del servidor se implementa en `lib/store.ts` y se usa desde la A
 - `app/page.tsx`
   Pagina principal con formulario, metricas e historial local.
 - `app/api/shorten/route.ts`
-  Endpoint que valida la URL, consulta `is.gd` y guarda el resultado en Upstash.
+  Endpoint que valida la URL, aplica rate limit, genera slug y guarda el resultado en Upstash.
 - `app/[slug]/page.tsx`
   Ruta dinamica que busca el slug en Upstash y redirige a la URL original.
 - `lib/store.ts`
@@ -56,6 +56,10 @@ El proyecto necesita un archivo `.env` con estas variables:
 UPSTASH_REDIS_REST_URL="https://tu-instancia.upstash.io"
 UPSTASH_REDIS_REST_TOKEN="tu-token"
 ALLOW_INSECURE_SHORTENER_TLS="false"
+APP_BASE_URL="https://tu-dominio.com"
+LINK_TTL_SECONDS="0"
+SHORTEN_RATE_LIMIT_MAX="20"
+SHORTEN_RATE_LIMIT_WINDOW_SECONDS="60"
 ```
 
 ### Significado de cada variable
@@ -66,15 +70,22 @@ ALLOW_INSECURE_SHORTENER_TLS="false"
   Token de acceso REST para Upstash.
 - `ALLOW_INSECURE_SHORTENER_TLS`
   Permite conexiones TLS relajadas solo para entornos locales con certificados corporativos o inspeccion HTTPS.
+- `APP_BASE_URL`
+  Dominio publico base usado para construir los enlaces cortos. Si no se define, se usa el `origin` de la request.
+- `LINK_TTL_SECONDS`
+  TTL de los enlaces en segundos. Usa `0` para sin expiracion.
+- `SHORTEN_RATE_LIMIT_MAX`
+  Cantidad maxima de solicitudes por ventana para `/api/shorten`.
+- `SHORTEN_RATE_LIMIT_WINDOW_SECONDS`
+  Duracion de la ventana de rate limit en segundos.
 
 ## Requisitos de red
 
 Para que el flujo funcione correctamente, la maquina que ejecuta el servidor debe tener acceso de salida a:
 
-- `is.gd`
 - tu dominio de Upstash, por ejemplo `*.upstash.io`
 
-Si la red corporativa bloquea esos dominios, la API no podra completar el acortado ni la persistencia.
+Si la red corporativa bloquea ese dominio, la API no podra completar la persistencia.
 
 ## Ejecutar el proyecto
 
@@ -97,17 +108,13 @@ http://localhost:3000
 - React 19
 - TypeScript
 - Upstash Redis
-- is.gd como proveedor de acortado
 
 ## Estado funcional esperado
 
 Cuando todo esta correctamente configurado:
 
 - el usuario envia una URL
-- recibe una URL corta generada por `is.gd`
+- recibe una URL corta generada por el servidor
 - el slug queda almacenado en Upstash
 - el frontend muestra el resultado y lo agrega al historial local
-
-## Nota
-
-El `README` describe el funcionamiento actual del proyecto segun el codigo existente del repositorio.
+- el endpoint aplica rate limit basico para reducir abuso
