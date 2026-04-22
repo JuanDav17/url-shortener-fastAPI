@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { saveUrl, slugExists } from '@/lib/store';
+import { saveUrl } from '@/lib/store';
 import { generateSlug, normalizeAndValidateUrl } from '@/lib/utils';
+import { MAX_SLUG_ATTEMPTS, DEFAULT_SLUG_LENGTH } from '@/lib/server.constants';
+import { enforceShortenRateLimit } from '@/lib/rate-limit';
+import { logError, logInfo, logWarn } from '@/lib/logger';
 
 class BadRequestError extends Error {}
-
-const MAX_SLUG_ATTEMPTS = 8;
+class TooManyRequestsError extends Error {
+  constructor(
+    message: string,
+    public readonly retryAfterSeconds: number
+  ) {
+    super(message);
+  }
+}
 
 function getBaseUrl(request: NextRequest): string {
   const configured = process.env.APP_BASE_URL?.trim();
@@ -16,8 +25,41 @@ function getBaseUrl(request: NextRequest): string {
   return request.nextUrl.origin;
 }
 
+function getRequestIdentifier(request: NextRequest): string {
+  const forwardedFor = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  const realIp = request.headers.get('x-real-ip')?.trim();
+
+  return forwardedFor || realIp || 'unknown';
+}
+
+async function createUniqueSlug(originalUrl: string): Promise<string> {
+  for (let i = 0; i < MAX_SLUG_ATTEMPTS; i++) {
+    const candidate = generateSlug(DEFAULT_SLUG_LENGTH);
+    const wasSaved = await saveUrl(candidate, originalUrl, { onlyIfNotExists: true });
+
+    if (wasSaved) {
+      return candidate;
+    }
+  }
+
+  throw new Error('No se pudo generar un slug único. Intenta de nuevo.');
+}
+
 export async function POST(request: NextRequest) {
+  const start = Date.now();
+  const requestId = crypto.randomUUID();
+
   try {
+    const identifier = getRequestIdentifier(request);
+    const rateLimit = await enforceShortenRateLimit(identifier);
+
+    if (!rateLimit.allowed) {
+      throw new TooManyRequestsError(
+        'Demasiadas solicitudes. Intenta de nuevo en unos segundos.',
+        rateLimit.retryAfterSeconds
+      );
+    }
+
     const body = await request.json();
     const rawOriginalUrl =
       typeof body?.originalUrl === 'string' ? body.originalUrl : '';
@@ -32,32 +74,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let slug = '';
-
-    for (let i = 0; i < MAX_SLUG_ATTEMPTS; i++) {
-      const candidate = generateSlug(7);
-      const exists = await slugExists(candidate);
-
-      if (!exists) {
-        slug = candidate;
-        break;
-      }
-    }
-
-    if (!slug) {
-      throw new Error('No se pudo generar un slug único. Intenta de nuevo.');
-    }
-
-    await saveUrl(slug, normalizedUrl);
-
+    const slug = await createUniqueSlug(normalizedUrl);
     const shortUrl = `${getBaseUrl(request)}/${slug}`;
 
-    return NextResponse.json({
-      shortUrl,
+    logInfo('URL acortada correctamente', {
+      requestId,
       slug,
+      latencyMs: Date.now() - start,
     });
+
+    return NextResponse.json({ shortUrl, slug });
   } catch (error) {
-    console.error('Error en /api/shorten:', error);
+    const latencyMs = Date.now() - start;
+
+    if (error instanceof TooManyRequestsError) {
+      logWarn('Rate limit en /api/shorten', {
+        requestId,
+        latencyMs,
+        error,
+      });
+
+      return NextResponse.json(
+        { error: error.message },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(error.retryAfterSeconds),
+          },
+        }
+      );
+    }
 
     const message =
       error instanceof Error && error.message
@@ -65,6 +111,13 @@ export async function POST(request: NextRequest) {
         : 'No se pudo acortar la URL';
 
     const status = error instanceof BadRequestError ? 400 : 500;
+
+    logError('Error en /api/shorten', {
+      requestId,
+      latencyMs,
+      status,
+      error,
+    });
 
     return NextResponse.json({ error: message }, { status });
   }
